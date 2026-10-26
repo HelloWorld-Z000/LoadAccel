@@ -2,9 +2,10 @@
 // reference whose file is not a master-type file,
 //   ID 18216 / 17804  void Remove(BGSLargeRefData* this, FormID)       walks both cell -> FormID[] maps (ID 18242 / 17828 twice)
 //   ID 18218 / 17806  void Readd(BGSLargeRefData* this, TESObjectREFR*) lists the reference again through ID 18215 / 17803
-// with this = worldspace + 0x250. All read off the disassembly of SkyrimSE.exe 1.6.1170 and 1.5.97. The call to
-// Remove is wrapped here, and the three calls that change the lists by other means are watched (append, RNAM load,
-// destructor); what happens inside the wrappers is LargeRefCore.h (tested offline by tests/).
+// with this = worldspace + 0x250. All read off the disassembly of SkyrimSE.exe 1.6.1170 and 1.5.97; 1.7.104 carries
+// the 1.6.1170 code under the same IDs (research/ae17104/twins17.py). The call to Remove is wrapped here, and the
+// three calls that change the lists by other means are watched (append, RNAM load, destructor); what happens inside
+// the wrappers is LargeRefCore.h (tested offline by tests/).
 
 #include "LargeRefs.h"
 
@@ -20,7 +21,7 @@ namespace LargeRefs
 		using loadaccel::Now;
 		using loadaccel::Seconds;
 
-		// TESWorldSpace::largeRefData (the 'this' of all four functions is worldspace + 0x250 on both runtimes).
+		// TESWorldSpace::largeRefData (the 'this' of all four functions is worldspace + 0x250 on every runtime).
 		constexpr std::ptrdiff_t kLargeRefDataOffset = 0x250;
 
 		// The code the analysis read: Address Library ID, offset and size of the stretch, FNV-1a of its bytes.
@@ -101,7 +102,43 @@ namespace LargeRefs
 			} },
 		};
 
+		// SkyrimSE.exe 1.7.104.0 (unwind funclet: ID 116391, as on 1.6.1170): the same IDs and the same code but for
+		// the displacements. The worldspace destructor 20447 gained a lock around another member, which moves its
+		// call to the destructor from +967 to +994; the argument (worldspace + 0x250) is set up as before.
+		constexpr Image k17104{
+			.remove = 18216,
+			.append = 18215,
+			.load = 18214,
+			.destroy = 18213,
+			.code = { {
+				{ 18216, 0, 103, 0xBAEA8677AB5209F5ull, "Remove: the two walks" },
+				{ 18242, 0, 253, 0x0D23C00649ABBDC1ull, "the walk over one map" },
+				{ 18215, 0, 544, 0xA9E6292F12DDDC54ull, "Append" },
+				{ 19507, 2139, 30, 0x725BEA83C48372C8ull, "InitItemImpl: formID and worldspace + 0x250 into Remove, then Readd" },
+				{ 18218, 0, 86, 0x0780BC9CA51874FAull, "Readd, up to its first call" },
+				{ 18218, 90, 282, 0x0CF0E895605652E5ull, "Readd, after its first call" },
+			} },
+			.sites = { {
+				{ 19507, 2149, 18216 },
+				{ 18218, 303, 18215 },
+				{ 20453, 1561, 18214 },
+				{ 20447, 994, 18213 },
+			} },
+		};
+
 		const Image* image = &k1170;
+
+		const Image* ImageFor(loadaccel::Runtime a_runtime)
+		{
+			switch (a_runtime) {
+			case loadaccel::Runtime::k1597:
+				return &k1597;
+			case loadaccel::Runtime::k17104:
+				return &k17104;
+			default:
+				return &k1170;
+			}
+		}
 
 		using Remove_t = void(LargeRefData* a_data, std::uint32_t a_formID);
 		using Append_t = std::uintptr_t(LargeRefData* a_data, std::uint32_t a_formID, std::uint32_t a_cell, std::uint32_t a_listedCell);
@@ -241,7 +278,7 @@ namespace LargeRefs
 	bool Install(const Settings& a_settings, loadaccel::Runtime a_runtime)
 	{
 		settings = a_settings;
-		image = a_runtime == loadaccel::Runtime::k1597 ? &k1597 : &k1170;
+		image = ImageFor(a_runtime);
 		if (settings.stage < 1 || settings.stage > 3) {
 			logs::info("large refs: stage {} = off, nothing installed", settings.stage);
 			return true;

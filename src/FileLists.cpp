@@ -1,10 +1,10 @@
 // Target A: the engine keeps one global table of distinct source-file lists (TESFileArray, the thing
-// TESForm::sourceFiles points at) and searches it linearly in two functions (IDs: 1.6.1170 / 1.5.97):
+// TESForm::sourceFiles points at) and searches it linearly in two functions (IDs: 1.6.1170 and 1.7.104 / 1.5.97):
 //   ID 14580 / 14423  TESFileArray* FindOrAdd(TESFile** files, std::uint32_t count)
 //   ID 14569 / 14415  TESFileArray* WithFileAdded(TESFileArray* list, TESFile* file)
 // Both were read off the disassembly of SkyrimSE.exe 1.6.1170 (research/disasm.py) and 1.5.97
-// (research/se1597/twins.py). Their call sites are wrapped here; what happens inside the wrapper is
-// FileListCore.h (tested offline by tests/).
+// (research/se1597/twins.py); 1.7.104 carries the same code under the same IDs (research/ae17104/twins17.py).
+// Their call sites are wrapped here; what happens inside the wrapper is FileListCore.h (tested offline by tests/).
 
 #include "FileLists.h"
 
@@ -107,7 +107,43 @@ namespace FileLists
 			} },
 		};
 
+		// SkyrimSE.exe 1.7.104.0: the 1.6.1170 functions, instruction for instruction, under the same IDs. Only
+		// the displacements moved, so the hashes and the table globals (+0xA7C80) are new; the sites are the same.
+		constexpr Image k17104{
+			.findOrAdd = 14580,
+			.withFileAdded = 14569,
+			.withoutFile = 14570,
+			.tableData = 0x21A37E8,
+			.tableCount = 0x21A37F8,
+			.code = { {
+				{ 14580, 0, 360, 0xCEEA61C2252A274Bull, "FindOrAdd" },
+				{ 14569, 0, 391, 0x0D43640EB30AD2C2ull, "WithFileAdded" },
+				{ 14570, 0, 631, 0xA325D3D0266C44DCull, "WithoutFile (its own inlined search and append)" },
+			} },
+			.sites = { {
+				{ 14570, 230, 14580 },
+				{ 14571, 155, 14580 },
+				{ 14572, 19, 14580 },
+				{ 14593, 469, 14569 },
+				{ 14623, 144, 14569 },
+				{ 14593, 420, 14570 },
+				{ 14623, 182, 14570 },
+			} },
+		};
+
 		const Image* image = &k1170;
+
+		const Image* ImageFor(loadaccel::Runtime a_runtime)
+		{
+			switch (a_runtime) {
+			case loadaccel::Runtime::k1597:
+				return &k1597;
+			case loadaccel::Runtime::k17104:
+				return &k17104;
+			default:
+				return &k1170;
+			}
+		}
 
 		using FindOrAdd_t = FileArray*(void** a_files, std::uint32_t a_count);
 		using WithFileAdded_t = FileArray*(FileArray* a_list, void* a_file);
@@ -338,7 +374,7 @@ namespace FileLists
 	bool Install(const Settings& a_settings, loadaccel::Runtime a_runtime)
 	{
 		settings = a_settings;
-		image = a_runtime == loadaccel::Runtime::k1597 ? &k1597 : &k1170;
+		image = ImageFor(a_runtime);
 		if (settings.stage < 1 || settings.stage > 3) {
 			logs::info("source-file lists: stage {} = off, nothing installed", settings.stage);
 			return true;
